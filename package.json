@@ -1,0 +1,22 @@
+{
+  "name": "tool-calling-workshop",
+  "version": "1.0.0",
+  "description": "2-hour workshop on agentic AI tool calling — from schema to multi-turn agents",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node",
+    "clean": "rm -rf dist",
+    "example:weather": "ts-node examples/weather-agent/weather-agent.ts",
+    "example:github": "ts-node examples/github-search-agent/github-search-agent.ts",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "openai": "^4.47.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "typescript": "^5.4.5",
+    "ts-node": "^10.9.2"
+  }
+}
