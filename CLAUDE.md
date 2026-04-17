@@ -45,5 +45,5 @@ npx ts-node <file>   # run a single example
 
 - All types must be explicit — no `any` unless bridging an untyped LLM SDK response
 - Boilerplate files must compile with only TODO stubs unfilled (no broken imports)
-- Solutions must be self-contained and runnable with a valid `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` env var
+- Solutions must be self-contained and runnable with a valid `MISTRAL_API_KEY` env var
 - Examples must include a `.env.example` showing required keys

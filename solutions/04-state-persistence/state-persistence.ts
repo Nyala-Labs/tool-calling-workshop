@@ -237,7 +237,10 @@ export async function runTurn(
   registry: ToolRegistry,
   store: ThreadStore
 ): Promise<{ answer: string; threadId: string }> {
-  const openai = new OpenAI();
+  const openai = new OpenAI({
+    apiKey: process.env.MISTRAL_API_KEY,
+    baseURL: "https://api.mistral.ai/v1",
+  });
 
   // --- 1. Load or create the thread ---
   let thread: Thread;
@@ -344,7 +347,7 @@ async function demo() {
 
   const store = new InMemoryThreadStore();
   const config: AgentConfig = {
-    model: process.env.OPENAI_MODEL ?? "gpt-4o",
+    model: process.env.MISTRAL_MODEL ?? "mistral-small-latest",
     systemPrompt: "You are a helpful math assistant. Use the calculate tool when asked to do arithmetic.",
     tools: registry.getDefinitions(),
     verbose: true,

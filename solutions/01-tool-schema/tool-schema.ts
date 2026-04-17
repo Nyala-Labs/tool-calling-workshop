@@ -2,8 +2,6 @@
  * MODULE 1 — SOLUTION: Tool Schema Definition & Registration
  * ==========================================================
  *
- * This is the reference implementation. Do not look at this until you've
- * attempted the boilerplate exercises!
  *
  * KEY INSIGHTS from this module:
  *

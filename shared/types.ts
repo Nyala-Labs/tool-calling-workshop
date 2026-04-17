@@ -180,7 +180,7 @@ export type Message = UserMessage | AssistantMessage | ToolResultMessage;
  * Configuration passed to the ReAct reasoning loop.
  */
 export interface AgentConfig {
-  /** OpenAI model to use. "gpt-4o" recommended for reliable tool calling. */
+  /** Mistral model to use. "mistral-small-latest" recommended for reliable tool calling. */
   model: string;
 
   /**

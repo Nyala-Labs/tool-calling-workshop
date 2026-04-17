@@ -22,7 +22,7 @@
  */
 
 import * as dotenv from "dotenv";
-dotenv.config(); // Load OPENAI_API_KEY from .env
+dotenv.config(); // Load MISTRAL_API_KEY from .env
 
 import { AgentConfig } from "../../shared/types";
 import { buildTool, ToolRegistry } from "../../solutions/01-tool-schema/tool-schema";
@@ -189,7 +189,7 @@ async function main() {
   registry.register(forecastTool.definition, forecastTool.handler);
 
   const config: AgentConfig = {
-    model: process.env.OPENAI_MODEL ?? "gpt-4o",
+    model: process.env.MISTRAL_MODEL ?? "mistral-small-latest",
     systemPrompt: `You are a helpful weather assistant.
 When answering weather questions:
 - Always use the tools to get real data — don't guess temperatures.

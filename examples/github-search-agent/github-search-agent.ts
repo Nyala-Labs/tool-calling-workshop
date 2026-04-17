@@ -20,7 +20,7 @@
  *   1. Copy .env.example to .env
  *   2. Add GITHUB_TOKEN=ghp_... (personal access token with `repo` scope)
  *      Without a token, GitHub API has a 60 req/hour rate limit (usually enough for demos).
- *   3. Add OPENAI_API_KEY=sk-...
+ *   3. Add MISTRAL_API_KEY=...
  *
  * RUN: npx ts-node examples/github-search-agent/github-search-agent.ts
  * OR:  npm run example:github
@@ -268,7 +268,7 @@ async function main() {
   registry.register(listFilesTool.definition, listFilesTool.handler);
 
   const config: AgentConfig = {
-    model: process.env.OPENAI_MODEL ?? "gpt-4o",
+    model: process.env.MISTRAL_MODEL ?? "mistral-small-latest",
     systemPrompt: `You are a senior developer assistant specialized in exploring codebases on GitHub.
 
 When asked to find or explain code:

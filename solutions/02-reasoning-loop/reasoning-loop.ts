@@ -15,7 +15,7 @@
  *    The LLM reads these on the next REASON step and decides what to do next.
  *
  * 3. PARALLEL TOOL CALLS
- *    Modern LLMs (GPT-4o, Claude 3.5+) can request multiple tool calls
+ *    Modern LLMs (mistral-small-latest, mistral-large-latest, etc.) can request multiple tool calls
  *    in a single response. Always process all of them before looping back.
  *    Using Promise.all() runs them concurrently — much faster.
  *
@@ -57,7 +57,7 @@ async function callLLM(
 ): Promise<AssistantMessage> {
   const response = await openai.chat.completions.create({
     model,
-    // Cast to `any` because OpenAI's SDK types for messages are slightly stricter
+    // Cast to `any` because the SDK types for messages are slightly stricter
     // than our portable Message union. The actual shape is identical at runtime.
     messages: messages as any,
     tools: registry.getDefinitions() as any,
@@ -148,7 +148,12 @@ export async function runAgent(
   config: AgentConfig,
   registry: ToolRegistry
 ): Promise<AgentResult> {
-  const openai = new OpenAI();
+  // Mistral exposes an OpenAI-compatible endpoint — we reuse the openai SDK
+  // by pointing it at Mistral's base URL with a MISTRAL_API_KEY.
+  const openai = new OpenAI({
+    apiKey: process.env.MISTRAL_API_KEY,
+    baseURL: "https://api.mistral.ai/v1",
+  });
   const maxIterations = config.maxIterations ?? 10;
   const verbose = config.verbose ?? false;
 
