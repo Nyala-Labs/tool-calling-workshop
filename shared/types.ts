@@ -186,11 +186,13 @@ export interface AgentConfig {
   /**
    * System prompt: sets the agent's persona, goals, and constraints.
    * This is the most powerful lever for shaping agent behavior.
+   *
+   * @example
+   * "You are a helpful assistant with access to tools. Use them to answer
+   *  user questions accurately. Think step-by-step before calling a tool.
+   *  When you have enough information, respond directly without calling more tools."
    */
   systemPrompt: string;
-
-  /** All tools available to the agent. */
-  tools: ToolDefinition[];
 
   /**
    * Safety limit on how many tool-call rounds before we force-stop.

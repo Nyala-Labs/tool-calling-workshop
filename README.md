@@ -54,7 +54,7 @@ Then you'll run two complete working agents:
 - Enums to prevent hallucinated argument values
 - The `ToolRegistry` pattern: decoupling schema from implementation
 
-**Exercises in `boilerplate/01-tool-schema/tool-schema.ts`:**
+**Exercises in `solutions/01-tool-schema/tool-schema.ts`:**
 
 1. Define a `get_current_weather` tool schema with location + unit
 2. Implement the `ToolRegistry` class (register, getDefinitions, execute)

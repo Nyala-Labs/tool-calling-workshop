@@ -28,7 +28,7 @@
  *    is the final answer. Simple but critical — don't overcomplicate it.
  */
 
-import OpenAI from "openai";
+import { Mistral } from "@mistralai/mistralai";
 import {
   AgentConfig,
   AgentResult,
@@ -37,7 +37,8 @@ import {
   ToolCall,
   ToolResultMessage,
 } from "../../shared/types";
-import { ToolRegistry } from "../01-tool-schema/tool-schema";
+import { getWeatherTool, RegisteredTool, ToolRegistry } from "../01-tool-schema/tool-schema";
+import "dotenv/config";
 
 // ---------------------------------------------------------------------------
 // SOLUTION: callLLM — the REASON step
@@ -50,28 +51,31 @@ import { ToolRegistry } from "../01-tool-schema/tool-schema";
  * All it does is serialize messages, call the API, and deserialize the response.
  */
 async function callLLM(
-  openai: OpenAI,
+  mistral: Mistral,
   model: string,
   messages: Message[],
   registry: ToolRegistry
 ): Promise<AssistantMessage> {
-  const response = await openai.chat.completions.create({
+  const response = await mistral.chat.complete({
     model,
     // Cast to `any` because the SDK types for messages are slightly stricter
     // than our portable Message union. The actual shape is identical at runtime.
     messages: messages as any,
-    tools: registry.getDefinitions() as any,
+    // pass in the entire tool registry, let llm choose which tools to call
+    tools: registry.getDefinitions() as any
   });
 
   // choices[0] is always present for non-streaming completions.
-  const message = response.choices[0].message;
+  const message = response.choices![0].message!;
 
   // Map the SDK response shape to our AssistantMessage type.
+  // Note: Mistral SDK uses camelCase `toolCalls`; content may be ContentChunk[] so cast to string.
   return {
     role: "assistant",
-    content: message.content,
-    // tool_calls may be undefined when the LLM just returns text.
-    tool_calls: message.tool_calls as ToolCall[] | undefined,
+    content: (message.content ?? null) as string | null,
+    // toolCalls may be undefined when the LLM just returns text.
+    // llm would have parsed the user input, stored the tool args inside toolCall property
+    tool_calls: (message as any).toolCalls as ToolCall[] | undefined,
   };
 }
 
@@ -97,10 +101,12 @@ async function executeToolCalls(
 
       // arguments is always a JSON-encoded string — parse it before passing to the handler.
       let args: Record<string, unknown>;
+
       try {
         args = JSON.parse(toolCall.function.arguments);
       } catch {
         // Malformed JSON from the LLM — return an error the LLM can read.
+        // Then move on to the next tool in the toolCalls
         return {
           role: "tool",
           tool_call_id: toolCall.id,
@@ -108,15 +114,18 @@ async function executeToolCalls(
         };
       }
 
+      // args are successfully parsed for that particular tool call, now execute tool
       if (verbose) {
         console.log(`  [Tool] Executing "${name}" with args:`, args);
       }
 
       let content: string;
+
       try {
         content = await registry.execute(name, args);
       } catch (error) {
         // Tool threw an error — report it as a string so the LLM can self-correct.
+        // If  not string, must make it string
         content = `Error executing "${name}": ${error instanceof Error ? error.message : String(error)}`;
       }
 
@@ -124,6 +133,7 @@ async function executeToolCalls(
         console.log(`  [Tool] "${name}" returned:`, content);
       }
 
+      // return ToolResultMessage
       return {
         role: "tool",
         tool_call_id: toolCall.id, // Must match the id from the LLM's tool_call.
@@ -150,9 +160,8 @@ export async function runAgent(
 ): Promise<AgentResult> {
   // Mistral exposes an OpenAI-compatible endpoint — we reuse the openai SDK
   // by pointing it at Mistral's base URL with a MISTRAL_API_KEY.
-  const openai = new OpenAI({
+  const mistral = new Mistral({
     apiKey: process.env.MISTRAL_API_KEY,
-    baseURL: "https://api.mistral.ai/v1",
   });
   const maxIterations = config.maxIterations ?? 10;
   const verbose = config.verbose ?? false;
@@ -175,7 +184,7 @@ export async function runAgent(
     }
 
     // --- REASON ---
-    const assistantMessage = await callLLM(openai, config.model, messages, registry);
+    const assistantMessage = await callLLM(mistral, config.model, messages, registry);
 
     // Add the LLM's response to history — it MUST see its own prior messages.
     messages.push(assistantMessage);
@@ -184,7 +193,7 @@ export async function runAgent(
     // No tool_calls means the LLM is satisfied it has enough information
     // to answer the user directly. Extract the text and return.
     if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
-      if (verbose) {
+      if (verbose) { // user wants more detailed answer
         console.log("[ReAct] No tool calls — returning final answer.");
       }
       return {
@@ -194,12 +203,14 @@ export async function runAgent(
       };
     }
 
+    // LLM has tool calls
     if (verbose) {
       const names = assistantMessage.tool_calls.map((tc) => tc.function.name).join(", ");
       console.log(`[ReAct] ACT — tools requested: ${names}`);
     }
 
     // --- ACT ---
+    // it's a toolResultMessage array
     const toolResults = await executeToolCalls(
       assistantMessage.tool_calls,
       registry,
@@ -208,6 +219,7 @@ export async function runAgent(
 
     // --- OBSERVE ---
     // Record what happened for the caller (useful for debugging & logging).
+    // we passed the tool calls suggested by the llm, but not all might be called, maybe args or execute have error
     for (const result of toolResults) {
       const matchingCall = assistantMessage.tool_calls!.find(
         (tc) => tc.id === result.tool_call_id
@@ -222,14 +234,66 @@ export async function runAgent(
     }
 
     // Append all tool results to history so the LLM reads them on next REASON step.
+    // these are all the tool result messages
     messages.push(...toolResults);
   }
 
+  // iteration loop exited
   // Hit iteration limit without a final answer — surface this clearly.
   return {
-    answer: `Agent stopped: reached the ${maxIterations}-iteration limit without a final answer. ` +
-      `Consider increasing maxIterations or narrowing the task.`,
+    answer: `Agent stopped: reached the ${maxIterations}-iteration limit. `,
     toolCallsMade,
     iterations,
   };
+}
+
+// Only run demo when this file is executed directly (not when imported).
+if (require.main === module) {
+  const registry = new ToolRegistry();
+
+  const BuildWeatherTool: RegisteredTool = {
+    definition: getWeatherTool,
+    handler: async (args: Record<string, unknown>) => {
+      const location = args.location as string;
+      const unit = (args.unit as string) || "celsius";
+      
+    // (In a production app, you would use fetch() to call an API like OpenWeatherMap here)
+    const isFahrenheit = unit.toLowerCase() === "fahrenheit";
+    let temp = 22; // Base temperature
+
+    // Make the mock dynamic based on the city name
+    const locLower = location.toLowerCase();
+    if (locLower.includes("london")) temp = 12;
+    if (locLower.includes("tokyo")) temp = 18;
+    if (locLower.includes("dubai")) temp = 35;
+    if (locLower.includes("new york")) temp = 15;
+
+    // Convert to Fahrenheit if the LLM requested it
+    if (isFahrenheit) {
+      temp = Math.round((temp * 9/5) + 32);
+    }
+
+    const unitSymbol = isFahrenheit ? "°F" : "°C";
+
+    // 3. Return the string result back to the LLM so it can formulate an answer
+    return `The current weather in ${location} is ${temp}${unitSymbol} with partly cloudy skies.`;
+  }
+};
+
+  registry.register(BuildWeatherTool.definition, BuildWeatherTool.handler);
+
+  const config: AgentConfig = {
+    model: "mistral-small-latest",
+    systemPrompt: `You are a helpful assistant with access to tools. Use them to answer
+                 user questions accurately. Think step-by-step before calling a tool.
+                 When you have enough information, respond directly without calling more tools.`,
+    maxIterations: 1,
+    verbose: true
+  };
+
+  runAgent(
+      "i want current weather of kuala lumpur in celsius",
+      config,
+      registry
+  ).catch(console.error);
 }

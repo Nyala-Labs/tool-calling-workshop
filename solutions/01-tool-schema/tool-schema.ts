@@ -59,8 +59,8 @@ export const getWeatherTool: ToolDefinition = {
       },
       // "unit" is NOT required — the handler defaults it to "celsius" if omitted.
       required: ["location"],
-    },
-  },
+    }
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@ export const getWeatherTool: ToolDefinition = {
 /**
  * Pairs a ToolDefinition (sent to the LLM) with its handler (run locally).
  */
-interface RegisteredTool {
+export interface RegisteredTool {
   definition: ToolDefinition;
   handler: (args: Record<string, unknown>) => Promise<string>;
 }

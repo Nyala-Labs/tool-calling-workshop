@@ -1,2 +1,5 @@
 # environment variables
 .env
+
+# the npm packages
+node_modules/*

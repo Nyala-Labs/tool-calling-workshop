@@ -11,12 +11,13 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "openai": "^4.47.0",
-    "dotenv": "^16.4.5"
+    "@mistralai/mistralai": "^2.2.0",
+    "dotenv": "^16.4.5",
+    "openai": "^4.47.0"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
-    "typescript": "^5.4.5",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
   }
 }
