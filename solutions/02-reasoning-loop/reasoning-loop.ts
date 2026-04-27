@@ -56,11 +56,34 @@ async function callLLM(
   messages: Message[],
   registry: ToolRegistry
 ): Promise<AssistantMessage> {
+  const mistralMessages = messages.map((msg: any) => {
+    if (msg.role === "assistant") {
+      return {
+        role: "assistant",
+        // Mistral API strictly wants null, not "" if there is no text
+        content: msg.content ? msg.content : null, 
+        // Pass BOTH formats. The SDK reads camelCase, the REST API reads snake_case.
+        tool_calls: msg.tool_calls, 
+        toolCalls: msg.tool_calls,  
+      };
+    }
+    if (msg.role === "tool") {
+      return {
+        role: "tool",
+        content: msg.content,
+        // Pass BOTH formats here too
+        tool_call_id: msg.tool_call_id, 
+        toolCallId: msg.tool_call_id,   
+      };
+    }
+    return msg; // User and System messages pass through unchanged
+  });
+
   const response = await mistral.chat.complete({
     model,
     // Cast to `any` because the SDK types for messages are slightly stricter
     // than our portable Message union. The actual shape is identical at runtime.
-    messages: messages as any,
+    messages: mistralMessages as any,
     // pass in the entire tool registry, let llm choose which tools to call
     tools: registry.getDefinitions() as any
   });
@@ -75,7 +98,8 @@ async function callLLM(
     content: (message.content ?? null) as string | null,
     // toolCalls may be undefined when the LLM just returns text.
     // llm would have parsed the user input, stored the tool args inside toolCall property
-    tool_calls: (message as any).toolCalls as ToolCall[] | undefined,
+    // this is the first time ToolCall type is used
+    tool_calls: (message as any).toolCalls || (message as any).tool_calls as ToolCall[] | undefined
   };
 }
 
@@ -95,6 +119,7 @@ async function executeToolCalls(
   registry: ToolRegistry,
   verbose: boolean
 ): Promise<ToolResultMessage[]> {
+  // Promise.all takes all the Promises of ToolResultMessages, returns them in one array
   return Promise.all(
     toolCalls.map(async (toolCall): Promise<ToolResultMessage> => {
       const name = toolCall.function.name;
@@ -116,7 +141,7 @@ async function executeToolCalls(
 
       // args are successfully parsed for that particular tool call, now execute tool
       if (verbose) {
-        console.log(`  [Tool] Executing "${name}" with args:`, args);
+        console.log(`[Tool] Executing "${name}" with args:`, args);
       }
 
       let content: string;
@@ -130,7 +155,7 @@ async function executeToolCalls(
       }
 
       if (verbose) {
-        console.log(`  [Tool] "${name}" returned:`, content);
+        console.log(`[Tool] "${name}" returned:`, content);
       }
 
       // return ToolResultMessage
@@ -158,8 +183,7 @@ export async function runAgent(
   config: AgentConfig,
   registry: ToolRegistry
 ): Promise<AgentResult> {
-  // Mistral exposes an OpenAI-compatible endpoint — we reuse the openai SDK
-  // by pointing it at Mistral's base URL with a MISTRAL_API_KEY.
+  // initialize LLM client
   const mistral = new Mistral({
     apiKey: process.env.MISTRAL_API_KEY,
   });
@@ -168,19 +192,23 @@ export async function runAgent(
 
   // Seed the conversation. System message gives the LLM its persona + goals.
   // Cast system message to `any` to avoid adding "system" to our Message union.
+  // this messages array only used by the llm in the iterative loop
   const messages: Message[] = [
     { role: "system", content: config.systemPrompt } as any,
     { role: "user", content: userInput },
   ];
 
+  // AgentResult is this function's output, it's a JSON object
+  // it has a property called toolCallsMade, hence the type
   const toolCallsMade: AgentResult["toolCallsMade"] = [];
   let iterations = 0;
 
+  // the iterative loop to call llm
   for (let i = 0; i < maxIterations; i++) {
     iterations++;
 
     if (verbose) {
-      console.log(`\n[ReAct] Iteration ${iterations} — REASON`);
+      console.log(`\n[ReAct] REASON - Iteration ${iterations}`);
     }
 
     // --- REASON ---
@@ -206,7 +234,7 @@ export async function runAgent(
     // LLM has tool calls
     if (verbose) {
       const names = assistantMessage.tool_calls.map((tc) => tc.function.name).join(", ");
-      console.log(`[ReAct] ACT — tools requested: ${names}`);
+      console.log(`[ReAct] ACT — Iteration ${iterations}. Tools requested: ${names}`);
     }
 
     // --- ACT ---
@@ -218,10 +246,14 @@ export async function runAgent(
     );
 
     // --- OBSERVE ---
-    // Record what happened for the caller (useful for debugging & logging).
-    // we passed the tool calls suggested by the llm, but not all might be called, maybe args or execute have error
+    // Record all the tool results into toolCallsMade (useful for debugging & logging).
+    // need to match id cuz return object AgentResult has toolCallsMade property, this
+    // needs properties from both toolResultMessage and ToolCall
+    // cannot combine properties from ToolCall into toolResultMessage cuz
+    // 
     for (const result of toolResults) {
       const matchingCall = assistantMessage.tool_calls!.find(
+        // ToolCall id match toolResultMessage id
         (tc) => tc.id === result.tool_call_id
       );
       if (matchingCall) {
@@ -233,8 +265,7 @@ export async function runAgent(
       }
     }
 
-    // Append all tool results to history so the LLM reads them on next REASON step.
-    // these are all the tool result messages
+    // Append all toolResultMessage objects to history so the LLM reads them on next REASON step.
     messages.push(...toolResults);
   }
 
@@ -265,7 +296,7 @@ if (require.main === module) {
     const locLower = location.toLowerCase();
     if (locLower.includes("london")) temp = 12;
     if (locLower.includes("tokyo")) temp = 18;
-    if (locLower.includes("dubai")) temp = 35;
+    if (locLower.includes("kuala lumpur")) temp = 31;
     if (locLower.includes("new york")) temp = 15;
 
     // Convert to Fahrenheit if the LLM requested it
@@ -287,13 +318,28 @@ if (require.main === module) {
     systemPrompt: `You are a helpful assistant with access to tools. Use them to answer
                  user questions accurately. Think step-by-step before calling a tool.
                  When you have enough information, respond directly without calling more tools.`,
-    maxIterations: 1,
+    maxIterations: 10,
     verbose: true
   };
 
-  runAgent(
+  // need async function to wrap cuz await function returns promise, not const, so must handle diff types
+  async function main (config: AgentConfig, registry: ToolRegistry) {
+    try {
+    const agent_result: AgentResult = await runAgent(
       "i want current weather of kuala lumpur in celsius",
       config,
       registry
-  ).catch(console.error);
+    );
+
+    console.log(`Agent run completed.
+      Agent answer: ${agent_result.answer}
+      The tool calls made: ${agent_result.toolCallsMade}.
+      Number of iterations: ${agent_result.iterations}.`)
+
+    } catch (error) {
+        console.error("Agent failed to run:", error);
+      }
+  }
+
+  main(config, registry);
 }
